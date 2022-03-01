@@ -3,18 +3,27 @@ import time
 from multiprocessing import Process,Queue,Value
 from ctypes import c_char_p,c_longdouble, c_long, c_float
 import struct
-import csv
 
-SET_CONT_RESONANT = '34'
+CONT_RESONANT = '34'
+BIDIRECTIONAL = 34
+UNIDIRECTIONAL = 33
+MAG = 3
+LINESCAN_MODE = '35'
+AXIS_GAIN = 51
+AXIS_GAIN_CODE = 'f0'
+ACQ_CONTROL = 4
+RESET = 255
+SHUTTER = 16
+
 class cmd_msg(ctypes.Structure):
     _fields_ = [('cmd',ctypes.c_uint),
-                ('field',ctypes.c_uint),
-                ('val',ctypes.c_uint)]
-    def make(cmd,field = 0, val = 0):
+                ('selector',ctypes.c_uint),
+                ('value',ctypes.c_uint)]
+    def make(cmd,selector = 0, value = 0):
         res = cmd_msg()
         res.cmd = int(cmd,16)
-        res.field = field
-        res.val = val
+        res.selector = field
+        res.value = val
         return res
 
 BOX_DEFAULT_PREFERENCES = dict(continuous_resonant = False)
@@ -44,8 +53,60 @@ class BoxController(Process):
     def __init__(self):
         self.set_continuous_resonant(self._status['continuous_resonant'].value)
 
+    def set_axis_gain(self, axis = 0, x = 0, multiplier = 1):
+        '''
+        Set the gain of the "x" axis (0) or the "y" axis (1)
+        x is 0, 1 or 2 (x1, x2 x4)
+        TODO: DOcument this.
+        '''
+        if axis:
+            code = int(AXIS_GAIN_CODE,16) + int(x,16)
+        else:
+            code = int(x,16)
+        m = np.round((mult-1)*128 + 128)
+        cmd = cmd_msg.make(AXIS_GAIN, selector = code, value = m)
+        # Set variables here.
+        self.cmd_queue.put(cmd)
+
+    def start_scan(self):
+        cmd = cmd_msg.make(ACQ_CONTROL, value = 1)
+        self.cmd_queue.put(cmd)
+
+    def reset(self):
+        cmd = cmd_msg.make(RESET)
+        self.cmd_queue.put(cmd)
+
+    def abort_scan(self):
+        cmd = cmd_msg.make(ACQ_CONTROL, value = 0)
+        self.cmd_queue.put(cmd)
+
+    def set_shutter(self,value):
+        cmd = cmd_msg.make(SHUTTER,value = value)
+        self.cmd_queue.put(cmd)
+        
+    def set_mode(self,mode = 'unidirectional' ):
+        if mode in [1, 'bidirectional','bidi']:
+            cmd = cmd_msg.make(BIDIRECTIONAL)
+        else:
+            cmd = cmd_msg.make(UNIDIRECTIONAL)
+        self.cmd_queue.put(cmd)
+            
+    def set_mag(self, magnification):
+        cmd = cmd_msg.make(MAG, value = magnification)
+        self.cmd_queue.put(cmd)
+
+    def set_linescan_mode(self, mode):
+        '''
+        Linescan mode 
+            0 - unidirectional
+            1 - bidirectional
+        '''
+        
+        cmd = cmd_msg.make(LINESCAN_MODE, value = mode)
+        self.cmd_queue.put(cmd)    
+
     def set_continuous_resonant(self,value = False):
-        cmd = cmd_msg.make(SET_CONT_RESONANT, val = value)
+        cmd = cmd_msg.make(CONT_RESONANT, value = value)
         self._status['continuous_resonant'].value = value
         self.cmd_queue.put(cmd)
 
