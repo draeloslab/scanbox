@@ -1,6 +1,7 @@
 import serial
 import time
-from multiprocessing import Process,Queue,Value
+from threading import Thread
+from multiprocessing import Queue
 from ctypes import c_char_p,c_longdouble, c_long, c_float
 import struct
 
@@ -28,30 +29,48 @@ class cmd_msg(ctypes.Structure):
 
 BOX_DEFAULT_PREFERENCES = dict(continuous_resonant = False)
 
-class BoxController(Process):
+class BoxController(Thread):
     def __init__(self, master_port = 'COM8',
                  baudrate = 115200,
                  log_queue = None,
                  timeout = 0.1, preferences = None):
         super(BoxController,self).__init__()
-        self.cmd_queue = Queue()
+        try:
+            self.usb = serial.Serial(port=self.port,
+                                     baudrate=self.baudrate,
+                                     timeout = self.timeout)
+        except Exception as err:
+            display('Could not connect to box on {0}'.format(self.port))
+            print(err)
+            raise(OSError('Could not connect to Neurolabware Control Box'))
+        self.cmd_queue = Queue() # use a queue to manage commands
         self.log_queue = log_queue # this is only needed when saving
 
         # Events to control the flow of the process
-        self.exit = Event()                 # quit the controller
-        self.experiment_running = Event()   # quit an experiment
+        self.exit_flag = False              # quit the controller
 
-        self.experiment_start = Value(c_longdouble, time.time())
         self.preferences = preferences
+        self.initialize_settings()
+        self.start()
+
+    def run(self):
+        self.usb.flushInput()
+        self.usb.flushOutput()
+        time.sleep(0.5)
+        
+        while not self.exit_flag:
+            if not self.cmd_queue.is_empty():
+                self.cmd_queue.get()
+
+    def initialize_settings(self):
         if self.preferences is None:
             self.preferences = dict()
         for f in BOX_DEFAULT_PREFERENCES.keys():
             if not f in self.preferences.keys():
                 self.preferences[f] = BOX_DEFAULT_PREFERENCES[f]
-        self._status = dict(continuous_resonant = Value('i',0))
+        self._status = dict(continuous_resonant = self.preferences['continuous_resonant'])
 
-    def __init__(self):
-        self.set_continuous_resonant(self._status['continuous_resonant'].value)
+        self.set_continuous_resonant(self._status['continuous_resonant'])
 
     def set_axis_gain(self, axis = 0, x = 0, multiplier = 1):
         '''
@@ -113,13 +132,3 @@ class BoxController(Process):
     def usb_write(self, data):
         self.usb.write()
 
-    def run():
-        self.usb = serial.Serial(port=self.port,
-                                 baudrate=self.baudrate,
-                                 timeout = self.timeout)
-        self.usb.flushInput()
-        self.usb.flushOutput()
-        time.sleep(0.5)
-        
-    while not self.exit.is_set():
-        if not self.cmd_queue
