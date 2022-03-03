@@ -2,9 +2,9 @@ import serial
 import time
 from threading import Thread
 from multiprocessing import Queue
-from ctypes import c_char_p,c_longdouble, c_long, c_float
+import ctypes 
 import struct
-
+from .utils import *
 CONT_RESONANT = '34'
 BIDIRECTIONAL = 34
 UNIDIRECTIONAL = 33
@@ -22,27 +22,27 @@ class cmd_msg(ctypes.Structure):
                 ('value',ctypes.c_uint)]
     def make(cmd,selector = 0, value = 0):
         res = cmd_msg()
-        res.cmd = int(cmd,16)
-        res.selector = field
-        res.value = val
-        return res
+        if type(cmd) is str:
+            cmd = int(cmd,16)
+        res.cmd = cmd
+        res.selector = selector
+        res.value = value
+        return bytearray(res)
 
 BOX_DEFAULT_PREFERENCES = dict(continuous_resonant = False)
 
 class BoxController(Thread):
-    def __init__(self, master_port = 'COM8',
+    def __init__(self, master_port,
                  baudrate = 115200,
                  log_queue = None,
                  timeout = 0.1, preferences = None):
         super(BoxController,self).__init__()
-        try:
-            self.usb = serial.Serial(port=self.port,
-                                     baudrate=self.baudrate,
-                                     timeout = self.timeout)
-        except Exception as err:
-            display('Could not connect to box on {0}'.format(self.port))
-            print(err)
-            raise(OSError('Could not connect to Neurolabware Control Box'))
+        self.master_port = master_port
+        self.baudrate = baudrate
+        self.timeout = timeout
+        self.usb = None
+        self.connect_usb()
+        
         self.cmd_queue = Queue() # use a queue to manage commands
         self.log_queue = log_queue # this is only needed when saving
 
@@ -53,15 +53,29 @@ class BoxController(Thread):
         self.initialize_settings()
         self.start()
 
+    def connect_usb(self):
+        try:
+            self.usb = serial.Serial(port=self.master_port,
+                                     baudrate=self.baudrate,
+                                     timeout = self.timeout)
+        except Exception as err:
+            display('Could not connect to box on {0}'.format(self.master_port))
+            print(err)
+            raise(OSError('Could not connect to Neurolabware Control Box'))
+
     def run(self):
+        if self.usb is None:
+            self.connect_usb()
         self.usb.flushInput()
         self.usb.flushOutput()
         time.sleep(0.5)
-        
         while not self.exit_flag:
-            if not self.cmd_queue.is_empty():
-                self.cmd_queue.get()
-
+            if not self.cmd_queue.empty():
+                cmd = self.cmd_queue.get()
+                print(cmd)
+                self.usb_write(cmd)
+            while self.usb.inWaiting():
+                print(self.usb.readline())
     def initialize_settings(self):
         if self.preferences is None:
             self.preferences = dict()
@@ -69,8 +83,7 @@ class BoxController(Thread):
             if not f in self.preferences.keys():
                 self.preferences[f] = BOX_DEFAULT_PREFERENCES[f]
         self._status = dict(continuous_resonant = self.preferences['continuous_resonant'])
-
-        self.set_continuous_resonant(self._status['continuous_resonant'])
+        #self.set_continuous_resonant(self._status['continuous_resonant'])
 
     def set_axis_gain(self, axis = 0, x = 0, multiplier = 1):
         '''
@@ -81,8 +94,8 @@ class BoxController(Thread):
         if axis:
             code = int(AXIS_GAIN_CODE,16) + int(x,16)
         else:
-            code = int(x,16)
-        m = np.round((mult-1)*128 + 128)
+            code = x
+        m = np.round((multiplier-1)*128 + 128)
         cmd = cmd_msg.make(AXIS_GAIN, selector = code, value = m)
         # Set variables here.
         self.cmd_queue.put(cmd)
@@ -91,7 +104,7 @@ class BoxController(Thread):
         cmd = cmd_msg.make(ACQ_CONTROL, value = 1)
         self.cmd_queue.put(cmd)
 
-    def reset(self):
+    def reset_bootloader(self):
         cmd = cmd_msg.make(RESET)
         self.cmd_queue.put(cmd)
 
@@ -120,15 +133,18 @@ class BoxController(Thread):
             0 - unidirectional
             1 - bidirectional
         '''
-        
+        if mode in [1, 'bidirectional','bidi']:
+            mode = 1
+        else:
+            mode = 0
         cmd = cmd_msg.make(LINESCAN_MODE, value = mode)
         self.cmd_queue.put(cmd)    
 
     def set_continuous_resonant(self,value = False):
         cmd = cmd_msg.make(CONT_RESONANT, value = value)
-        self._status['continuous_resonant'].value = value
+        self._status['continuous_resonant'] = value
         self.cmd_queue.put(cmd)
 
     def usb_write(self, data):
-        self.usb.write()
+        self.usb.write(data)
 
