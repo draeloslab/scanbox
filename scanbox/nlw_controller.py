@@ -29,19 +29,67 @@ class cmd_msg(ctypes.Structure):
         res.value = value
         return bytearray(res)
 
+BOX_COMMANDS = {'version':cmd_msg.make('78',int('aa',16),int('55',16)), # returns 3 bytes
+                }
+
 BOX_DEFAULT_PREFERENCES = dict(continuous_resonant = False)
+
+def sbox_get_version(usb):
+    # ask the version, read 3 bytes
+#     usb.write(BOX_COMMANDS['version'])
+    usb.write(struct.pack('!BBB',int('78',16),int('aa',16),int('55',16)))
+    usb.flush()
+    usb.timeout = 2 # set the timeout to 1 sec
+    tt = box.usb.read(3)
+    return struct.unpack("!BBB",tt)
+
+def sbox_set_lcd_token(usb,token = 1):
+    # what does this do?
+    usb.write(struct.pack('!BBB',0,token,0))
+    usb.flush()
+    return
+def sbox_set_master_slave(usb,enable = True):
+    # enable/disable master <-> slave line drive
+    usb.write(struct.pack('!BBB',int('0e',16),enable,0))
+    usb.flush()
+    return
+
+def sbox_set_optotune_active(usb,enable = False):
+    # enable/disable optotune
+    usb.write(struct.pack('!BBB',23,enable,0))
+    usb.flush()
+    return
+
+def sbox_set_current_power_active(usb,enable = False):
+    # enable/disable current power 
+    usb.write(struct.pack('!BBB',20,enable,0))
+    usb.flush()
+    return
+
+def sbox_set_status_message(usb,message = 1):
+    
+    usb.write(struct.pack('!BBB',12,message,0))
+    usb.flush()
+    return
 
 class BoxController(Thread):
     def __init__(self, master_port,
-                 baudrate = 115200,
+                 slave_port = None,
+                 baudrate = 1000000,
                  log_queue = None,
-                 timeout = 0.1, preferences = None):
+                 timeout = 1, preferences = None):
         super(BoxController,self).__init__()
         self.master_port = master_port
         self.baudrate = baudrate
         self.timeout = timeout
         self.usb = None
         self.connect_usb()
+        #self.get_version()
+        # ask the version, read 3 bytes
+        #self.usb.write(BOX_COMMANDS['version'])
+        #print('Version',struct.unpack(self.usb.read(3),'HHH'),flush=True)
+        
+
         
         self.cmd_queue = Queue() # use a queue to manage commands
         self.log_queue = log_queue # this is only needed when saving
@@ -50,32 +98,36 @@ class BoxController(Thread):
         self.exit_flag = False              # quit the controller
 
         self.preferences = preferences
-        self.initialize_settings()
-        self.start()
-
+        #self.initialize_settings()
+        #self.start()
+    def get_version(self):
+        self.usb.write(BOX_COMMANDS['version'])
+        tt = self.usb.read(3)
+        self.version = struct.unpack("!BBB",tt)
+        display('Box version: {0}'.format(self.version))
+        
     def connect_usb(self):
         try:
             self.usb = serial.Serial(port=self.master_port,
                                      baudrate=self.baudrate,
+                                     xonxoff = True,
                                      timeout = self.timeout)
         except Exception as err:
             display('Could not connect to box on {0}'.format(self.master_port))
             print(err)
             raise(OSError('Could not connect to Neurolabware Control Box'))
-
+        self.usb.reset_output_buffer()
+        self.usb.reset_input_buffer()
+        
     def run(self):
-        if self.usb is None:
-            self.connect_usb()
-        self.usb.flushInput()
-        self.usb.flushOutput()
-        time.sleep(0.5)
         while not self.exit_flag:
             if not self.cmd_queue.empty():
                 cmd = self.cmd_queue.get()
-                print(cmd)
+                print(cmd,flush=True)
                 self.usb_write(cmd)
-            while self.usb.inWaiting():
-                print(self.usb.readline())
+            while self.usb.inWaiting() >= 1:
+                print('Has read.',flush=True)
+                print(self.usb.readline(),flush=True)
     def initialize_settings(self):
         if self.preferences is None:
             self.preferences = dict()
