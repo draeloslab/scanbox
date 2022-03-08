@@ -5,111 +5,45 @@ from multiprocessing import Queue
 import ctypes 
 import struct
 from .utils import *
-CONT_RESONANT = '34'
-BIDIRECTIONAL = 34
-UNIDIRECTIONAL = 33
-MAG = 3
-LINESCAN_MODE = '35'
-AXIS_GAIN = 51
-AXIS_GAIN_CODE = 'f0'
-ACQ_CONTROL = 4
-RESET = 255
-SHUTTER = 16
-
-class cmd_msg(ctypes.Structure):
-    _fields_ = [('cmd',ctypes.c_uint),
-                ('selector',ctypes.c_uint),
-                ('value',ctypes.c_uint)]
-    def make(cmd,selector = 0, value = 0):
-        res = cmd_msg()
-        if type(cmd) is str:
-            cmd = int(cmd,16)
-        res.cmd = cmd
-        res.selector = selector
-        res.value = value
-        return bytearray(res)
-
-BOX_COMMANDS = {'version':cmd_msg.make('78',int('aa',16),int('55',16)), # returns 3 bytes
-                }
 
 BOX_DEFAULT_PREFERENCES = dict(continuous_resonant = False)
 
-def sbox_get_version(usb):
-    # ask the version, read 3 bytes
-#     usb.write(BOX_COMMANDS['version'])
-    usb.write(struct.pack('!BBB',int('78',16),int('aa',16),int('55',16)))
-    usb.flush()
-    usb.timeout = 2 # set the timeout to 1 sec
-    tt = box.usb.read(3)
-    return struct.unpack("!BBB",tt)
-
-def sbox_set_lcd_token(usb,token = 1):
-    # what does this do?
-    usb.write(struct.pack('!BBB',0,token,0))
-    usb.flush()
-    return
-def sbox_set_master_slave(usb,enable = True):
-    # enable/disable master <-> slave line drive
-    usb.write(struct.pack('!BBB',int('0e',16),enable,0))
-    usb.flush()
-    return
-
-def sbox_set_optotune_active(usb,enable = False):
-    # enable/disable optotune
-    usb.write(struct.pack('!BBB',23,enable,0))
-    usb.flush()
-    return
-
-def sbox_set_current_power_active(usb,enable = False):
-    # enable/disable current power 
-    usb.write(struct.pack('!BBB',20,enable,0))
-    usb.flush()
-    return
-
-def sbox_set_status_message(usb,message = 1):
-    
-    usb.write(struct.pack('!BBB',12,message,0))
-    usb.flush()
-    return
-
-class BoxController(Thread):
+def ScanboxController(Thread):
     def __init__(self, master_port,
                  slave_port = None,
                  baudrate = 1000000,
                  log_queue = None,
                  timeout = 1, preferences = None):
+        '''
+Class to control Neurolabware Scanbox hardware.
+        '''
         super(BoxController,self).__init__()
         self.master_port = master_port
         self.baudrate = baudrate
         self.timeout = timeout
         self.usb = None
         self.connect_usb()
-        #self.get_version()
-        # ask the version, read 3 bytes
-        #self.usb.write(BOX_COMMANDS['version'])
-        #print('Version',struct.unpack(self.usb.read(3),'HHH'),flush=True)
-        
-
-        
-        self.cmd_queue = Queue() # use a queue to manage commands
-        self.log_queue = log_queue # this is only needed when saving
-
+        self.cmd_queue = Queue()    # use a queue to manage commands
+        self.log_queue = log_queue  # this is only needed when saving
         # Events to control the flow of the process
-        self.exit_flag = False              # quit the controller
-
+        self.exit_flag = False      # quit the controller
         self.preferences = preferences
-        #self.initialize_settings()
-        #self.start()
-    def get_version(self):
-        self.usb.write(BOX_COMMANDS['version'])
-        tt = self.usb.read(3)
-        self.version = struct.unpack("!BBB",tt)
-        display('Box version: {0}'.format(self.version))
-        
+
+        self.pockels_lut = None
+        self.resonant_gains = None
+        self.galvo_gains = None
+        self.interrupt_mask = None
+        self.scanmode = None
+        #self.start()               # This starts the commands
+
+    def log_msg(self,msg):
+        '''Over-write this function to do something when there is need to log'''
+        print('[Scanbox] ' + msg)
+                
     def connect_usb(self):
         try:
-            self.usb = serial.Serial(port=self.master_port,
-                                     baudrate=self.baudrate,
+            self.usb = serial.Serial(port = self.master_port,
+                                     baudrate = self.baudrate,
                                      xonxoff = True,
                                      timeout = self.timeout)
         except Exception as err:
@@ -118,85 +52,239 @@ class BoxController(Thread):
             raise(OSError('Could not connect to Neurolabware Control Box'))
         self.usb.reset_output_buffer()
         self.usb.reset_input_buffer()
+
+    def write(self, data):
+        self.usb.write(data)
+        self.usb.flush()
         
     def run(self):
         while not self.exit_flag:
             if not self.cmd_queue.empty():
                 cmd = self.cmd_queue.get()
                 print(cmd,flush=True)
-                self.usb_write(cmd)
+                self.write(cmd)
             while self.usb.inWaiting() >= 1:
-                print('Has read.',flush=True)
                 print(self.usb.readline(),flush=True)
+
     def initialize_settings(self):
         if self.preferences is None:
             self.preferences = dict()
         for f in BOX_DEFAULT_PREFERENCES.keys():
             if not f in self.preferences.keys():
                 self.preferences[f] = BOX_DEFAULT_PREFERENCES[f]
-        self._status = dict(continuous_resonant = self.preferences['continuous_resonant'])
-        #self.set_continuous_resonant(self._status['continuous_resonant'])
+        self._status = dict(
+            continuous_resonant = self.preferences['continuous_resonant'])
 
-    def set_axis_gain(self, axis = 0, x = 0, multiplier = 1):
+
+    def get_version(self):
+        ''' Get the firmware version of the master controller '''
+        self.write(struct.pack('!BBB',
+                               int('78',16),
+                               int('aa',16),
+                               int('55',16)))
+        self.usb.timeout = 2 # set the timeout to 1 sec
+        tt = box.usb.read(3) # response is 3 bytes
+        tt = struct.unpack("!BBB",tt)
+        self.master_version = tt
+        self.log_msg('Master version {0}.{1}.{2}'.format(*self.master_version))
+        return tt
+
+    def set_lcd_token(self, token = 1):
+        # what does this do?
+        self.write(struct.pack('!BBB',0,token,0))
+        self.log_msg('Setting lcd token: {0}'.format(token))
+
+    def set_master_slave(self, enable = True):
+        ''' Enable or disable the master-slave line drive'''
+        self.write(struct.pack('!BBB',int('0e',16),enable,0))
+        self.log_msg('{0} the master-slave line drive.'.format(
+            'Enabled' if enable else 'Disabled'))            
+
+
+    def optotune_active(self, enable = False):
+        ''' Enable/disable the optotunable lens '''
+        self.write(struct.pack('!BBB',23,enable,0))
+        self.log_msg('{0} the tunable lens (fast-Z).'.format(
+            'Enabled' if enable else 'Disabled'))            
+
+
+    def current_power_active(self, enable = False):
+        # enable/disable current power 
+        self.write(struct.pack('!BBB',20,enable,0))
+        self.log_msg('{0} current power'.format(
+            'Enabled' if enable else 'Disabled'))
+
+
+    def box_status_message(self, message = 1):
         '''
-        Set the gain of the "x" axis (0) or the "y" axis (1)
-        x is 0, 1 or 2 (x1, x2 x4)
-        TODO: DOcument this.
+        Messages
+           1) Goodbye.
         '''
-        if axis:
-            code = int(AXIS_GAIN_CODE,16) + int(x,16)
-        else:
-            code = x
-        m = np.round((multiplier-1)*128 + 128)
-        cmd = cmd_msg.make(AXIS_GAIN, selector = code, value = m)
-        # Set variables here.
-        self.cmd_queue.put(cmd)
+        self.write(struct.pack('!BBB', 12, message,0))
 
-    def start_scan(self):
-        cmd = cmd_msg.make(ACQ_CONTROL, value = 1)
-        self.cmd_queue.put(cmd)
 
-    def reset_bootloader(self):
-        cmd = cmd_msg.make(RESET)
-        self.cmd_queue.put(cmd)
-
-    def abort_scan(self):
-        cmd = cmd_msg.make(ACQ_CONTROL, value = 0)
-        self.cmd_queue.put(cmd)
-
-    def set_shutter(self,value):
-        cmd = cmd_msg.make(SHUTTER,value = value)
-        self.cmd_queue.put(cmd)
+    def set_interrupt_mask(self, mask):
+        self.interrupt_mask = mask
+        self.write(struct.pack('!BBB', 64, 0, mask))
+        self.log_msg('Set interrupt mask to: {0}.'.format(self.interrupt_mask))
         
-    def set_mode(self,mode = 'unidirectional' ):
-        if mode in [1, 'bidirectional','bidi']:
-            cmd = cmd_msg.make(BIDIRECTIONAL)
+
+    def galvo_dv(self, value = 64):
+        self.write(struct.pack('!BBB', int(66,16), value, 0))
+        self.log_msg('Setting galvo dv per line to: {0}.'.format(value))
+
+    def set_mag_gains_x(self, gains = []):
+        for i,g in enumerate(gains):
+            xh = int(np.floor(g))
+            xl = int(np.floor((x-xh)*10))
+            self.write(struct.pack('!BBB', int('b0',16)+i, xh, xl))
+        
+    def mag_gains_x(self, gains = []):
+        for i,g in enumerate(gains):
+            xh = int(np.floor(g))
+            xl = int(np.floor((x-xh)*10))
+            self.write(struct.pack('!BBB', int('b0',16)+i, xh, xl))
+        self.resonant_gains = gains
+        self.log_msg('Setting resonant (x) gains to: {0}.'.format(gains))
+        
+    def mag_gains_y(self, gains = []):
+        for i,g in enumerate(gains):
+            xh = int(np.floor(g))
+            xl = int(np.floor((x-xh)*10))
+            self.write(struct.pack('!BBB', int('c0',16)+i, xh, xl))
+        self.galvo_gains = gains
+        self.log_msg('Setting galvo (y) gains to: {0}.'.format(gains))
+
+    def pockels_lut(self, pockels_lut = np.arange(256)):
+        self.pockels_lut = pockels_lut
+        for i,val in enumerate(pockels_lut):
+            self.write(struct.pack('!BBB', int('43',16), i, val))
+        self.log_msg('Set the pockels lookup table.')
+
+    def reset_pockels_lut(self):
+        self.write(struct.pack('!BBB', int('44',16), 0, 0))
+        self.log_msg('Reset the pockels lookup table.')
+        
+    def pockels_range(self, dac = 1, pga = 2):
+        self.write(struct.pack('!BBB', 13, int(dac), int(pga)))
+        self.log_msg('Set the pockels range: dac {0} - pga {1}.'.format(dac, pga))
+
+    def hsync_sign(self,sign = 1):
+        '''
+        Set the horizontal axis sign
+           0 - normal
+           1 - flip the horizontal axis
+        '''
+        self.write(struct.pack('!BBB', int('80',16), int(sign), 0))
+        self.log_msg('Set the sign of the horizontal axis ({0}).'.format(
+            'normal' if sign==0 else 'flipped'))
+
+    def disable_ttl_trigger(self):
+        self.write(struct.pack('!BBB', int('e1',16), int('00',16), int('00',16)))
+        self.log_msg('Disabled the external trigger.')
+
+    def continuous_resonant(self, enable = False):
+        self.write(struct.pack('!BBB', int('34',16), int(enable), 0))
+        self.log_msg('{0} the continuous resonant mode'.format(
+            'Enabled' if enable else 'Disabled'))
+
+    def set_warmup_delay(self,delay):
+        self.warmup_delay = delay
+        self.write(struct.pack('!BBB', 11, 0, int(delay)))
+        self.log_msg('Set warmup delay to {0}.'.format(delay))
+
+    
+    def set_mirror_position(self,position = 0):
+        self.mirror_position = position
+        self.write(struct.pack('!BBB', 5, 0, int(position)))
+        self.log_msg('Mirror position {0}.'.format(position))
+    
+    def set_pockels(self,base,active):
+        self.write(struct.pack('!BBB', 8, int(base), int(active)))
+        self.log_msg('Pockels set: {0} {1}.'.format(base,active))
+
+    def set_deadband_period(self,period):
+        '''Sets the period of the deadband pwm which has to be between 1245 and 1500 '''
+        period = int(np.clip(period,1245,1500))
+        self.deadband_period = period
+        self.write(struct.pack('!BBB', 10, 0, 1500-period))
+        self.log_msg('Deadband period: {0} .'.format(period))
+
+    def set_deadband(self,left = 0,right = 0):
+        self.deadband = [int(left), int(right)]
+        self.write(struct.pack('!BBB', 9, int(left), int(right)))
+        self.log_msg('Deadband blanking: left - {0} right {1} .'.format(left,right))
+
+    def set_scanmode(self, mode = 'unidirectional'):
+        if mode in [0,'uni','unidirectional']:
+            self.write(struct.pack('!BBB', 33, 0, 0))
+            self.scanmode = 'unidirectional'
         else:
-            cmd = cmd_msg.make(UNIDIRECTIONAL)
-        self.cmd_queue.put(cmd)
+            self.write(struct.pack('!BBB', 34, 0, 0))
+            self.scanmode = 'bidirectional'
+        self.log_msg('Scanning mode: {0}'.format(self.scanmode))
             
-    def set_mag(self, magnification):
-        cmd = cmd_msg.make(MAG, value = magnification)
-        self.cmd_queue.put(cmd)
+    def get_frame_rate(self):
+        return self.resonant_freq/self.nlines*(2-(0 if self.scanmode == 'bidirectional' else 1))
 
-    def set_linescan_mode(self, mode):
-        '''
-        Linescan mode 
-            0 - unidirectional
-            1 - bidirectional
-        '''
-        if mode in [1, 'bidirectional','bidi']:
-            mode = 1
+    
+    def set_camera_ttl(self,enable = True):
+        self.write(struct.pack('!BBB', 121, int(enable), 0))
+        self.log_msg('{0} camera ttl'.format(
+            'Enabled' if enable else 'Disabled'))
+
+    def set_trigger(self, trigger = 'internal'):
+        if trigger in ['internal',0]:
+            trigger = 0
         else:
-            mode = 0
-        cmd = cmd_msg.make(LINESCAN_MODE, value = mode)
-        self.cmd_queue.put(cmd)    
+            trigger = 1    
+        self.write(struct.pack('!BBB', int('e2',16), int(trigger), 0))
+        self.trigger = 'external' if trigger else 'internal'
+        self.log_msg('Setting trial start/stop signal to {0}'.format(
+            'TTL1' if trigger else 'extension header P1.6'))
+        
+    def select_magnification(self,magnification):
+        self.write(struct.pack('!BBB', 3, 0, int(magnification)))
+        self.mag_idx = magnification
+        self.log_msg('Magnification: {0}'.format(self.mag_idx))
 
-    def set_continuous_resonant(self,value = False):
-        cmd = cmd_msg.make(CONT_RESONANT, value = value)
-        self._status['continuous_resonant'] = value
-        self.cmd_queue.put(cmd)
+        
+    def set_lines(self, nlines = 512):
+        b0,b1 = _encodenumber(nlines)
+        self.write(struct.pack('!BBB', 2, b0, b1))
+        self.nlines = nlines
+        self.log_msg('Number of lines: {0}'.format(self.nlines))
+    
+    def set_nframes(self, nframes = 0):
+        b0,b1 = _encodenumber(nframes)
+        self.write(struct.pack('!BBB', 1, b0, b1))
+        self.nframes = nframes
+        self.log_msg('Number of frames: {0}'.format(self.nframes))
 
-    def usb_write(self, data):
-        self.usb.write(data)
+    def abort(self):
+        self.write(struct.pack('!BBB', 4, 0, 0))
+        self.is_acquiring = False
+        # set gains to zero!
+        self.log_msg('Stopped scanning.')
 
+    def scan(self):
+        self.write(struct.pack('!BBB', 4, 0, 0))
+        self.is_acquiring = True
+        self.log_msg('Started scanning.')
+
+    def pmt_gain(pmt, gain = 0):
+        self.write(struct.pack('!BBB', int(6+pmt), 0, gain))
+        self.pmt_gains[pmt] = gain
+        self.log_msg('PMT {0} gain: {1}'.format(pmt,gain))
+       
+        
+def _encodenumber(number):
+    '''encodes a number in 2 uint8 to send to scanbox'''
+    number = np.uint16(number)
+    b0 =  np.shift_left(np.bitwise_and(number,int('ff00',16)),-8)
+    b1 =  np.bitwise_and(number,int('00ff',16))
+    return b0,b1
+
+        
+        
+        
