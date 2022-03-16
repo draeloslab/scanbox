@@ -6,9 +6,7 @@ import ctypes
 import struct
 from .utils import *
 
-BOX_DEFAULT_PREFERENCES = dict(continuous_resonant = False)
-
-def ScanboxController(Thread):
+class ScanboxController(Thread):
     def __init__(self, master_port,
                  slave_port = None,
                  baudrate = 1000000,
@@ -17,7 +15,7 @@ def ScanboxController(Thread):
         '''
 Class to control Neurolabware Scanbox hardware.
         '''
-        super(BoxController,self).__init__()
+        super(ScanboxController,self).__init__()
         self.master_port = master_port
         self.baudrate = baudrate
         self.timeout = timeout
@@ -32,8 +30,10 @@ Class to control Neurolabware Scanbox hardware.
         self.pockels_lut = None
         self.resonant_gains = None
         self.galvo_gains = None
+        self.pmt_gains = [0 for i in range(4)]
         self.interrupt_mask = None
         self.scanmode = None
+        self.initialize_settings()
         #self.start()               # This starts the commands
 
     def log_msg(self,msg):
@@ -68,13 +68,47 @@ Class to control Neurolabware Scanbox hardware.
 
     def initialize_settings(self):
         if self.preferences is None:
-            self.preferences = dict()
-        for f in BOX_DEFAULT_PREFERENCES.keys():
-            if not f in self.preferences.keys():
-                self.preferences[f] = BOX_DEFAULT_PREFERENCES[f]
-        self._status = dict(
-            continuous_resonant = self.preferences['continuous_resonant'])
+            config = get_config()
+            self.preferences = config['twophoton']
 
+        # initialization
+        self.get_version()            # get the version
+        self.set_lcd_token(1)         # give token to the master ?
+        self.set_master_slave(True)   # enable master-slave comms
+        self.optotune_active(0)       # disable optotune
+        self.current_power_active(0)  # disable link between the optotune and power
+        [self.pmt_gain(pmt,0) for pmt in range(4)] # set pmt gains to zero
+        self.set_lines(512)           # set the default number of lines
+        self.set_nframes(-1)          # number of frames
+        self.select_magnification(0)  # choose the default magnification
+        self.set_interrupt_mask(3)    # set the interrupt mask
+
+        self.galvo_dv(self.preferences['dv_galvo'])                                        # set galvo dv
+        self.mag_gains_y(self.preferences['gain_galvo'])                                   # set galvo gains
+        self.mag_gains_x([
+            g*self.preferences['gain_resonant_multiplier']
+            for g in self.preferences['gain_galvo']]) # set resonant gains
+
+        self.pockels_range()
+        self.reset_pockels_lut()
+
+        self.hsync_sign(self.preferences['hsync_sign'])
+        self.disable_ttl_trigger()
+        self.continuous_resonant(False)
+        self.set_warmup_delay(50)  
+
+        self.set_mirror_position(1) # set for 2p
+
+        self.set_pockels(0)
+        self.set_deadband_period(np.round(24e6/self.preferences['resonant_frequency']/2))    
+        self.set_deadband(0,0)
+        self.set_scanmode(self.preferences['unidirectional']==False)
+
+        self.galvo_mode(False)
+        self.set_galvo(False)
+
+        self.set_onephoton_ttls(False)
+        self.box_status_message(0)  # say hi
 
     def get_version(self):
         ''' Get the firmware version of the master controller '''
@@ -83,7 +117,7 @@ Class to control Neurolabware Scanbox hardware.
                                int('aa',16),
                                int('55',16)))
         self.usb.timeout = 2 # set the timeout to 1 sec
-        tt = box.usb.read(3) # response is 3 bytes
+        tt = self.usb.read(3) # response is 3 bytes
         tt = struct.unpack("!BBB",tt)
         self.master_version = tt
         self.log_msg('Master version {0}.{1}.{2}'.format(*self.master_version))
@@ -130,19 +164,26 @@ Class to control Neurolabware Scanbox hardware.
         
 
     def galvo_dv(self, value = 64):
-        self.write(struct.pack('!BBB', int(66,16), value, 0))
+        self.write(struct.pack('!BBB', int('66',16), value, 0))
         self.log_msg('Setting galvo dv per line to: {0}.'.format(value))
 
-    def set_mag_gains_x(self, gains = []):
-        for i,g in enumerate(gains):
-            xh = int(np.floor(g))
-            xl = int(np.floor((x-xh)*10))
-            self.write(struct.pack('!BBB', int('b0',16)+i, xh, xl))
+    def galvo_mode(self, value = False):
+        ''' Turn the galvo resonant mode ON or OFF'''
+        self.write(struct.pack('!BBB', int('ed',16), value, 0))
+        self.log_msg('{0} the galvo "resonant" mode.'.format(
+            'Enabled' if value else 'Disabled'))
+
+    def set_galvo(self, enable = False):
+        ''' Activate or deactivate the galvo '''
+        self.write(struct.pack('!BBB', int('eb',16), enable, enable))
+        self.log_msg('{0} the galvo.'.format(
+            'Enabled' if enable else 'Disabled'))
         
     def mag_gains_x(self, gains = []):
+        gains = np.round(gains,3)
         for i,g in enumerate(gains):
             xh = int(np.floor(g))
-            xl = int(np.floor((x-xh)*10))
+            xl = int(np.floor((g-xh)*10))
             self.write(struct.pack('!BBB', int('b0',16)+i, xh, xl))
         self.resonant_gains = gains
         self.log_msg('Setting resonant (x) gains to: {0}.'.format(gains))
@@ -150,11 +191,12 @@ Class to control Neurolabware Scanbox hardware.
     def mag_gains_y(self, gains = []):
         for i,g in enumerate(gains):
             xh = int(np.floor(g))
-            xl = int(np.floor((x-xh)*10))
+            xl = int(np.floor((g-xh)*10))
             self.write(struct.pack('!BBB', int('c0',16)+i, xh, xl))
         self.galvo_gains = gains
         self.log_msg('Setting galvo (y) gains to: {0}.'.format(gains))
 
+        
     def pockels_lut(self, pockels_lut = np.arange(256)):
         self.pockels_lut = pockels_lut
         for i,val in enumerate(pockels_lut):
@@ -188,7 +230,7 @@ Class to control Neurolabware Scanbox hardware.
         self.log_msg('{0} the continuous resonant mode'.format(
             'Enabled' if enable else 'Disabled'))
 
-    def set_warmup_delay(self,delay):
+    def set_warmup_delay(self,delay = 50):
         self.warmup_delay = delay
         self.write(struct.pack('!BBB', 11, 0, int(delay)))
         self.log_msg('Set warmup delay to {0}.'.format(delay))
@@ -199,8 +241,8 @@ Class to control Neurolabware Scanbox hardware.
         self.write(struct.pack('!BBB', 5, 0, int(position)))
         self.log_msg('Mirror position {0}.'.format(position))
     
-    def set_pockels(self,base,active):
-        self.write(struct.pack('!BBB', 8, int(base), int(active)))
+    def set_pockels(self,active,base=0):
+        self.write(struct.pack('!BBB', 8, int(base), int(active*255)))
         self.log_msg('Pockels set: {0} {1}.'.format(base,active))
 
     def set_deadband_period(self,period):
@@ -242,6 +284,11 @@ Class to control Neurolabware Scanbox hardware.
         self.trigger = 'external' if trigger else 'internal'
         self.log_msg('Setting trial start/stop signal to {0}'.format(
             'TTL1' if trigger else 'extension header P1.6'))
+
+    def set_onephoton_ttls(self, enable = False):
+        self.write(struct.pack('!BBB', int('f7',16), int(enable), int(enable)))
+        self.log_msg('{0} the onephoton camera ttl for the behavior cameras'.format(
+            'Enabled' if enable else 'Disabled'))
         
     def select_magnification(self,magnification):
         self.write(struct.pack('!BBB', 3, 0, int(magnification)))
@@ -250,14 +297,14 @@ Class to control Neurolabware Scanbox hardware.
 
         
     def set_lines(self, nlines = 512):
-        b0,b1 = _encodenumber(nlines)
-        self.write(struct.pack('!BBB', 2, b0, b1))
-        self.nlines = nlines
+        #b0,b1 = _encodenumber(nlines)
+        self.write(struct.pack('!BH', 2, np.uint16(nlines)))
+        self.nlines = int(nlines)
         self.log_msg('Number of lines: {0}'.format(self.nlines))
     
     def set_nframes(self, nframes = 0):
-        b0,b1 = _encodenumber(nframes)
-        self.write(struct.pack('!BBB', 1, b0, b1))
+        #b0,b1 = _encodenumber(nframes)
+        self.write(struct.pack('!BH', 1, np.uint16(nframes)))
         self.nframes = nframes
         self.log_msg('Number of frames: {0}'.format(self.nframes))
 
@@ -268,12 +315,13 @@ Class to control Neurolabware Scanbox hardware.
         self.log_msg('Stopped scanning.')
 
     def scan(self):
-        self.write(struct.pack('!BBB', 4, 0, 0))
+        self.write(struct.pack('!BBB', 4, 0, 1))
         self.is_acquiring = True
         self.log_msg('Started scanning.')
 
-    def pmt_gain(pmt, gain = 0):
-        self.write(struct.pack('!BBB', int(6+pmt), 0, gain))
+    def pmt_gain(self,pmt, gain = 0):
+        x = np.uint16(gain*3000)
+        self.write(struct.pack('!BH', int(6+pmt), x))
         self.pmt_gains[pmt] = gain
         self.log_msg('PMT {0} gain: {1}'.format(pmt,gain))
        
