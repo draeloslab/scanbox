@@ -1,5 +1,5 @@
 from ..utils import *
-
+from PyQt5 import QtOpenGL  # noqa
 from PyQt5.QtWidgets import QApplication
 GUI_UPDATE = QApplication.processEvents
 
@@ -43,9 +43,10 @@ from PyQt5.QtGui import (QImage, QPixmap,QBrush,QPen,
                          QStandardItem)
 from PyQt5.QtCore import Qt,QSize,QRectF,QLineF,QPointF,QTimer
 
-import pyqtgraph as pg
-pg.setConfigOption('background',[30,30,30])
+ #import pyqtgraph as pg
+#pg.setConfigOption('background',[30,30,30])
 
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvas,
     NavigationToolbar2QT as NavigationToolbar)
+
