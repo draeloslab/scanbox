@@ -9,7 +9,7 @@ from .utils import *
 class ScanboxController(Thread):
     def __init__(self, master_port,
                  slave_port = None,
-                 baudrate = 1000000,
+                 baudrate = 57600,  # 1000000, different from motor_baudrate?
                  log_queue = None,
                  timeout = 1, preferences = None):
         '''
@@ -95,14 +95,14 @@ Class to control Neurolabware Scanbox hardware.
         self.hsync_sign(self.preferences['hsync_sign'])
         self.disable_ttl_trigger()
         self.continuous_resonant(False)
-        self.set_warmup_delay(50)  
+        self.set_warmup_delay(50)  # set to 50??
 
         self.set_mirror_position(1) # set for 2p
 
         self.set_pockels(0)
-        self.set_deadband_period(np.round(24e6/self.preferences['resonant_frequency']/2))    
+        self.set_deadband_period(np.round(24e6/self.preferences['resonant_frequency']/2)) # matlab deadband which one??
         self.set_deadband(0,0)
-        self.set_scanmode(self.preferences['unidirectional']==False)
+        self.set_scanmode(self.preferences['unidirectional']==False)  # why??
 
         self.galvo_mode(False)
         self.set_galvo(False)
@@ -125,6 +125,7 @@ Class to control Neurolabware Scanbox hardware.
 
     def set_lcd_token(self, token = 1):
         # what does this do?
+        # TODO: that's my question as well!!
         self.write(struct.pack('!BBB',0,token,0))
         self.log_msg('Setting lcd token: {0}'.format(token))
 
@@ -180,7 +181,7 @@ Class to control Neurolabware Scanbox hardware.
             'Enabled' if enable else 'Disabled'))
         
     def mag_gains_x(self, gains = []):
-        gains = np.round(gains,3)
+        # gains = np.round(gains,4)  # rounded to 4 decimal, is this even necessary??
         for i,g in enumerate(gains):
             xh = int(np.floor(g))
             xl = int(np.floor((g-xh)*10))

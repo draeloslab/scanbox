@@ -1,0 +1,51 @@
+cameras:
+  one_photon:
+    binning: 4
+    cam_id: 0
+    driver: basler
+    exposure: 100
+data_path: C:\Users\paulawu\2pdata
+motors:
+  knobby_port: COM13
+  knobby_version: 9
+  motors_baudrate: 57600
+  motors_port: COM5
+network_cmd_server: 7001
+neurolabware_box:
+  firmware: '4.5'
+  master_port: null
+  slave_port: null
+twophoton:
+  acquisition_nbuffers: 16
+  acquisition_trigger_level: 160
+  acquisition_trigger_slope: positive
+  bidi_shift: 0
+  dv_galvo: 64
+  gain_galvo:
+  - 1.0
+  - 1.1892
+  - 1.4142
+  - 1.6818
+  - 2.0
+  - 2.3784
+  - 2.8284
+  - 3.3636
+  - 4.0
+  - 4.7568
+  - 5.6569
+  - 6.7272
+  - 8.0
+  gain_resonant_multiplier: 1.0
+  hsync_sign: 0
+  laser_frequency: 80000000
+  margin: 20
+  objectives:
+  - Nikon 16x_0.8w_WD3.0
+  pmt_acquisition_range:
+  - -1
+  - 1
+  resonant_frequency: 8000
+  sync_pulse_width: 16
+  triggered_acquisition: false
+  unidirectional: true
+  warmup_delay: 50

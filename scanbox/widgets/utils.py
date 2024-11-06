@@ -1,4 +1,4 @@
-from ..utils import *
+from scanbox.utils import *
 from PyQt5 import QtOpenGL  # noqa
 from PyQt5.QtWidgets import QApplication
 GUI_UPDATE = QApplication.processEvents
