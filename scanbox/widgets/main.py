@@ -60,12 +60,42 @@ class Scanbox(QMainWindow):
                 pars = dict(self.config['cameras'][c])
                 if not 'name' in pars.keys():
                     pars['name'] = c
-                if 'one_photon' in c:
-                    self.cam_onep = cams.Camera(**pars)
-                    cam = self.cam_onep
-                else:
-                    self.cams[c] = cams.Camera(**pars)
-                    cam = self.cams[c]
+                # if 'one_photon' in c:
+                #     self.cam_onep = cams.Camera(**pars)
+                #     cam = self.cam_onep
+                # else:
+                #     self.cams[c] = cams.Camera(**pars)
+                #     cam = self.cams[c]
+                try:
+                # Attempt to initialize the Basler camera
+                    if 'one_photon' in c:
+                        self.cam_onep = cams.Camera(**pars)
+                        cam = self.cam_onep
+                    else:
+                        self.cams[c] = cams.Camera(**pars)
+                        cam = self.cams[c]
+                except Exception as e:
+                    print(f"Failed to initialize Basler camera for '{c}': {e}")
+                    print("Using mock camera instead for testing.")
+
+                    # Define a mock camera as a fallback
+                    class MockCamera:
+                        def __init__(self, **kwargs):
+                            print("Mock Basler Camera initialized with parameters:", kwargs)
+                        
+                        def start(self):
+                            print("Mock camera started")
+
+                        def get_img(self):
+                            import numpy as np
+                            return np.zeros((480, 640, 3), dtype=np.uint8)  # Black frame for testing
+                    
+                    # Substitute the failed camera with the mock
+                    cam = MockCamera(**pars)
+                    if 'one_photon' in c:
+                        self.cam_onep = cam
+                    else:
+                        self.cams[c] = cam
                 cam.start()
                 cam.cam.start_trigger.set()
                 self.cam_widgets[c] = CameraWidget(cam,parent = self)
