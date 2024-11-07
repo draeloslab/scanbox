@@ -1,4 +1,5 @@
 from .utils import *
+from unittest.mock import MagicMock
 
 class Scanbox(QMainWindow):
     def __init__(self, config = None, server = None):
@@ -25,7 +26,7 @@ class Scanbox(QMainWindow):
         
         self.widget_timer = QTimer()
         self.widget_timer.timeout.connect(self.update_widget_timer)
-        self.widget_timer.start(0.030)
+        self.widget_timer.start(int(0.030*1000))
         self.show()
         
     def update_widget_timer(self):
@@ -78,11 +79,20 @@ class Scanbox(QMainWindow):
                     print(f"Failed to initialize Basler camera for '{c}': {e}")
                     print("Using mock camera instead for testing.")
 
-                    # Define a mock camera as a fallback
+                    class MockTrigger:
+                        def set(self):
+                            print("Mock trigger set")
+                    class MockCam:
+                        def __init__(self):
+                            self.start_trigger = MockTrigger()
+                        def get_img(self):
+                            import numpy as np
+                            return np.zeros((480, 640, 3), dtype=np.uint8)  # Black frame for testing
                     class MockCamera:
                         def __init__(self, **kwargs):
                             print("Mock Basler Camera initialized with parameters:", kwargs)
-                        
+                            self.cam = MockCam()  # Nested mock cam structure
+
                         def start(self):
                             print("Mock camera started")
 
