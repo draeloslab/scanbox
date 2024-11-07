@@ -93,7 +93,7 @@ class KnobbyController(Thread):
     def set_mode(self,mode = 'NOP'):
         if self.mode in KNOBBY_MODES:
             self.mode = mode
-            self.motor_write('RUN',1,0,KNOBBY_MODES[mode]
+            self.motor_write('RUN',1,0,KNOBBY_MODES[mode])
 
     def update_origin(self):
         if self.reset_on_start:
@@ -103,13 +103,13 @@ class KnobbyController(Thread):
         ''' Send command to motor controller and read response. '''
         Tx = bytearray(9)
         if value < 0:
-	    value += 4294967296
+            value += 4294967296
         Tx[0] = 1
         Tx[1] = TMCL_CMD[command]
         Tx[2] = cmd_type
         Tx[3] = motor
         for i in range(0,4):	                # compute each byte from value 
-	    Tx[7-i] = (value>>(8*i)) & 0x0ff
+            Tx[7-i] = (value>>(8*i)) & 0x0ff
         Tx[8] = sum(Tx[0:8]) & 0x0ff            # checksum
         self.motor_usb.write(Tx)
         r = bytearray(self.motor_usb.read(9))   # wait for response
@@ -153,8 +153,8 @@ class KnobbyController(Thread):
                         self.set_mode('TRACK')
                     motor = cmd[0]
                     coord = unpack('<l',r[-4:])[0] # relative to the origin
-		    target = coord + self.pos_origin[motor+1]
-		    r = self.motor_write('SCO', 10, motor, target)
+                    target = coord + self.pos_origin[motor+1]
+                    r = self.motor_write('SCO', 10, motor, target)
                 elif cmd[0] == 10: # zero position of 3 first axis
                     self.set_mode('NOP')
                     self.update_origin(3)
@@ -180,13 +180,23 @@ class KnobbyController(Thread):
                         display('[Motor controller] - PANIC - disabled controller.')
                         break
             else:
+                #TODO: the codes seem unifinished
                 if mode in ['TRACK']:
-                             if time.time() - tlastread > 0.1 # no message from knobby in a while, stop tracking
+                    if time.time() - tlastread > 0.1: # no message from knobby in a while, stop tracking
+                        break  # I added this but i'm very unsure (pw)
                     self.set_mode('NOP')
                     panic = self.motor_write('GGP', 0, 2, 0)
                     if panic[4] == 1:
                         display('[Motor controller] - PANIC - disabled controller.')
                         break
+            # else:  # this is the original code
+            #     if mode in ['TRACK']:
+            #                  if time.time() - tlastread > 0.1 # no message from knobby in a while, stop tracking
+            #         self.set_mode('NOP')
+            #         panic = self.motor_write('GGP', 0, 2, 0)
+            #         if panic[4] == 1:
+            #             display('[Motor controller] - PANIC - disabled controller.')
+            #             break
         # handle commands missing here.
                       
     def _handle_emergency_stop(cmd):

@@ -36,7 +36,10 @@ DEFAULT = dict(neurolabware_box=dict(master_port = None,
                                 dv_galvo = 64,  # v
                                 warmup_delay = 50,  # what is the unit here?? 0.05
                                 sync_pulse_width = 16,  # same, what is the unit? 0.002, is this even the same as camp_pulse_width?
-                                objectives = ['Nikon 16x_0.8w_WD3.0']),  # 'Nikon 16x/0.8w/WD3.0'
+                                objectives = ['Nikon 16x_0.8w_WD3.0'], # 'Nikon 16x/0.8w/WD3.0'
+                                deadband = [0, 0],
+                                bishift = [-71, -54, -14, -9, -21, -29, -38, -42,
+                                            -48, -54, -59, -65, -70]),  
                cameras = dict(one_photon = dict(cam_id = 0,
                                                 driver = 'basler',
                                                 exposure = 100,

@@ -39,7 +39,8 @@ Class to control Neurolabware Scanbox hardware.
     def log_msg(self,msg):
         '''Over-write this function to do something when there is need to log'''
         print('[Scanbox] ' + msg)
-                
+    
+    # make serial connection with the microscope
     def connect_usb(self):
         try:
             self.usb = serial.Serial(port = self.master_port,
@@ -77,7 +78,7 @@ Class to control Neurolabware Scanbox hardware.
         self.set_master_slave(True)   # enable master-slave comms
         self.optotune_active(0)       # disable optotune
         self.current_power_active(0)  # disable link between the optotune and power
-        [self.pmt_gain(pmt,0) for pmt in range(4)] # set pmt gains to zero
+        [self.pmt_gain(pmt,0) for pmt in range(4)] # set pmt gains to zero, why? talk to Alvin? 
         self.set_lines(512)           # set the default number of lines
         self.set_nframes(-1)          # number of frames
         self.select_magnification(0)  # choose the default magnification
@@ -101,7 +102,8 @@ Class to control Neurolabware Scanbox hardware.
 
         self.set_pockels(0)
         self.set_deadband_period(np.round(24e6/self.preferences['resonant_frequency']/2)) # matlab deadband which one??
-        self.set_deadband(0,0)
+        # self.set_deadband(0,0)
+        self.set_deadband(self.preferences['deadband'][0], self.preferences['deadband'][1])  # (0,0)
         self.set_scanmode(self.preferences['unidirectional']==False)  # why??
 
         self.galvo_mode(False)
