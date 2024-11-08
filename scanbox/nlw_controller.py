@@ -54,6 +54,7 @@ Class to control Neurolabware Scanbox hardware.
         self.usb.reset_output_buffer()
         self.usb.reset_input_buffer()
 
+    # connect to usb and write bytes data to the port
     def write(self, data):
         self.usb.write(data)
         self.usb.flush()
@@ -75,7 +76,7 @@ Class to control Neurolabware Scanbox hardware.
         # initialization
         self.get_version()            # get the version
         self.set_lcd_token(1)         # give token to the master ?
-        self.set_master_slave(True)   # enable master-slave comms
+        self.set_master_slave(False)   # disable enable master-slave comms: set to True
         self.optotune_active(0)       # disable optotune
         self.current_power_active(0)  # disable link between the optotune and power
         [self.pmt_gain(pmt,0) for pmt in range(4)] # set pmt gains to zero, why? talk to Alvin? 
@@ -101,7 +102,7 @@ Class to control Neurolabware Scanbox hardware.
         self.set_mirror_position(1) # set for 2p
 
         self.set_pockels(0)
-        self.set_deadband_period(np.round(24e6/self.preferences['resonant_frequency']/2)) # matlab deadband which one??
+        self.set_deadband_period(np.round(24e6/self.preferences['resonant_frequency']/2)) # 1500, matlab deadband which one??
         # self.set_deadband(0,0)
         self.set_deadband(self.preferences['deadband'][0], self.preferences['deadband'][1])  # (0,0)
         self.set_scanmode(self.preferences['unidirectional']==False)  # why??
@@ -127,7 +128,7 @@ Class to control Neurolabware Scanbox hardware.
 
     def set_lcd_token(self, token = 1):
         # what does this do?
-        # TODO: that's my question as well!!
+        # TODO: that's also my question!!
         self.write(struct.pack('!BBB',0,token,0))
         self.log_msg('Setting lcd token: {0}'.format(token))
 
