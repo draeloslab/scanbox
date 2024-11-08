@@ -33,7 +33,8 @@ Class to control Neurolabware Scanbox hardware.
         self.pmt_gains = [0 for i in range(4)]
         self.interrupt_mask = None
         self.scanmode = None
-        self.initialize_settings()
+        print('new code')
+        # self.initialize_settings()
         #self.start()               # This starts the commands
 
     def log_msg(self,msg):

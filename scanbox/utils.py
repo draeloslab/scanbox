@@ -11,42 +11,42 @@ def display(msg):
     sys.stdout.flush()
 
 
-DEFAULT = dict(neurolabware_box=dict(master_port = None,
-                                     slave_port = None,
-                                     firmware = '4.5'),
-               motors = dict(knobby_version = 9,#2,
-                             knobby_port = 'COM13',#None,
-                             motors_port = 'COM5',#None,
-                             motors_baudrate = 57600),
-               twophoton = dict(resonant_frequency = 8000,
-                                laser_frequency = 80000000,
-                                unidirectional = True,
-                                triggered_acquisition = False,
-                                pmt_acquisition_range = [-1, 1],
-                                acquisition_trigger_level = 160,
-                                acquisition_trigger_slope = 'positive',  # 0 is positive, do we need to change this?
-                                acquisition_nbuffers  = 16,
-                                margin = 20,
-                                bidi_shift = 0,
-                                hsync_sign = 0,  # change to normal 0; originally was 1
-                                gain_galvo = np.round(np.logspace(np.log10(1),
-                                                                  np.log10(8),
-                                                                  13),4).tolist(),  #v
-                                gain_resonant_multiplier = 1.0,
-                                dv_galvo = 64,  # v
-                                warmup_delay = 50,  # what is the unit here?? 0.05
-                                sync_pulse_width = 16,  # same, what is the unit? 0.002, is this even the same as camp_pulse_width?
-                                objectives = ['Nikon 16x_0.8w_WD3.0'], # 'Nikon 16x/0.8w/WD3.0'
-                                deadband = [0, 0],
-                                bishift = [-71, -54, -14, -9, -21, -29, -38, -42,
-                                            -48, -54, -59, -65, -70]),  
-               cameras = dict(one_photon = dict(cam_id = 0,
-                                                driver = 'basler',
-                                                exposure = 100,
-                                                binning = 4)),
-               network_cmd_server = 7001, 
-               data_path = pjoin(os.path.expanduser('~'),'2pdata'),
-               )
+# DEFAULT = dict(neurolabware_box=dict(master_port = None,
+#                                      slave_port = None,
+#                                      firmware = '4.5'),
+#                motors = dict(knobby_version = 9,#2,
+#                              knobby_port = 'COM13',#None,
+#                              motors_port = 'COM5',#None,
+#                              motors_baudrate = 57600),
+#                twophoton = dict(resonant_frequency = 8000,
+#                                 laser_frequency = 80000000,
+#                                 unidirectional = True,
+#                                 triggered_acquisition = False,
+#                                 pmt_acquisition_range = [-1, 1],
+#                                 acquisition_trigger_level = 160,
+#                                 acquisition_trigger_slope = 'positive',  # 0 is positive, do we need to change this?
+#                                 acquisition_nbuffers  = 16,
+#                                 margin = 20,
+#                                 bidi_shift = 0,
+#                                 hsync_sign = 0,  # change to normal 0; originally was 1
+#                                 gain_galvo = np.round(np.logspace(np.log10(1),
+#                                                                   np.log10(8),
+#                                                                   13),4).tolist(),  #v
+#                                 gain_resonant_multiplier = 1.0,
+#                                 dv_galvo = 64,  # v
+#                                 warmup_delay = 50,  # what is the unit here?? 0.05
+#                                 sync_pulse_width = 16,  # same, what is the unit? 0.002, is this even the same as camp_pulse_width?
+#                                 objectives = ['Nikon 16x_0.8w_WD3.0'], # 'Nikon 16x/0.8w/WD3.0'
+#                                 deadband = [0, 0],
+#                                 bishift = [-71, -54, -14, -9, -21, -29, -38, -42,
+#                                             -48, -54, -59, -65, -70]),  
+#                cameras = dict(one_photon = dict(cam_id = 0,
+#                                                 driver = 'basler',
+#                                                 exposure = 100,
+#                                                 binning = 4)),
+#                network_cmd_server = 7001, 
+#                data_path = pjoin(os.path.expanduser('~'),'2pdata'),
+#                )
 
 def save_config(preferences, user = 'default'):
     preferencepath = pjoin(os.path.expanduser('~'),'codes','scanbox',user)
@@ -75,14 +75,14 @@ def get_config(user='default', no_create=False):
         print('Creating user folder [{0}]'.format(preferencepath))
     preffile = pjoin(preferencepath,'config.yaml')
     # if not os.path.isfile(preffile):
-    save_config(DEFAULT,user = user)  # override files nevertheless
-    print('Saving default config to: {0} '.format(preffile))
+    # save_config(DEFAULT,user = user)  # override files nevertheless
+    # print('Saving default config to: {0} '.format(preffile))
     with open(preffile, 'r') as infile:
         pref = yaml.load(infile, Loader = yaml.FullLoader)
     pref['user'] = user
     pref['config_path'] = preferencepath
-    for k in DEFAULT.keys():
-        if not k in pref.keys():
-            # add default
-            pref[k] = DEFAULT[k]
+    # for k in DEFAULT.keys():
+    #     if not k in pref.keys():
+    #         # add default
+    #         pref[k] = DEFAULT[k]
     return pref
